@@ -27,6 +27,11 @@ try:
 except:
     Engine = None
 
+try:
+    from mlc_llm import MLCEngine
+except:
+    MLCEngine = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +50,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         system_message: str = None,
         vllm_batched: bool = False,
         sglang_batched: bool = False,
+        mlc_batched: bool = False,
     ) -> None:
         """
          Creates instance of the RankListwiseOSLLM class, an extension of RankLLM designed for performing listwise ranking of passages using a specified language model. Advanced configurations are supported such as GPU acceleration, variable passage handling, and custom system messages for generating prompts.
@@ -83,6 +89,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         self._device = device
         self._vllm_batched = vllm_batched
         self._sglang_batched = sglang_batched
+        self._mlc_batched = mlc_batched
         self._name = name
         self._variable_passages = variable_passages
         self._system_message = system_message
@@ -108,6 +115,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 model,
                 download_dir=os.getenv("HF_HOME"),
                 enforce_eager=False,
+                max_model_len=29360,
             )
             self._tokenizer = self._llm.get_tokenizer()
         elif sglang_batched and Engine is None:
@@ -117,6 +125,13 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         elif sglang_batched:
             port = random.randint(30000, 35000)
             self._llm = Engine(model, port=port)
+            self._tokenizer = self._llm.get_tokenizer()
+        elif mlc_batched and MLCEngine is None:
+            raise ImportError(
+                "Please install mlc-llm separately to use mlc-llm batch inference."
+            )
+        elif mlc_batched:
+            self._llm = MLCEngine("HF://" + model)
             self._tokenizer = self._llm.get_tokenizer()
         else:
             self._llm, self._tokenizer = load_model(
@@ -138,7 +153,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         step: int = kwargs.get("step", 10)
         populate_exec_summary: bool = kwargs.get("populate_exec_summary", False)
 
-        if self._vllm_batched or self._sglang_batched:
+        if self._vllm_batched or self._sglang_batched or self._mlc_batched:
             # reranking using vllm or sglang
             if len(set([len(req.candidates) for req in requests])) != 1:
                 raise ValueError(
@@ -184,7 +199,11 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 "Please install rank-llm with `pip install rank-llm[vllm]` to use batch inference."
             )
 
-        if isinstance(self._llm, LLM):
+        if isinstance(self._llm, None):
+            raise ReferenceError(
+                "No inference engine is initialized. Aborting..."
+            )
+        elif isinstance(self._llm, LLM):
             logger.info(f"VLLM Generating!")
             sampling_params = SamplingParams(
                 temperature=0.0,
@@ -197,8 +216,21 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 (output.outputs[0].text, len(output.outputs[0].token_ids))
                 for output in outputs
             ]
-        else:
+        elif isinstance(self._llm, Engine):
             logger.info(f"SGLang Generating!")
+            sampling_params = {
+                "temperature": 0.0,
+                "max_new_tokens": self.num_output_tokens(current_window_size),
+                "min_new_tokens": self.num_output_tokens(current_window_size),
+            }
+            outputs = self._llm.generate(prompts, sampling_params)
+            return [
+                # completion_tokens counts stop token
+                (output["text"], output["meta_info"]["completion_tokens"] - 1)
+                for output in outputs
+            ]
+        elif isinstance(self._llm, MLCEngine):
+            logger.info(f"MLCLLM Generating!")
             sampling_params = {
                 "temperature": 0.0,
                 "max_new_tokens": self.num_output_tokens(current_window_size),

@@ -99,6 +99,7 @@ def retrieve_and_rerank(
             dataset_name=dataset,
             vllm_batched=kwargs.get("vllm_batched", False),
             sglang_batched=kwargs.get("sglang_batched", False),
+            mlc_batched=kwargs.get("mlc_batched", False),
         )
         if (
             dataset in TOPICS
