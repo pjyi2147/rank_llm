@@ -29,6 +29,7 @@ except:
 
 try:
     from mlc_llm import MLCEngine
+    from mlc_llm.protocol.generation_config import GenerationConfig
 except:
     MLCEngine = None
 
@@ -124,15 +125,16 @@ class RankListwiseOSLLM(ListwiseRankLLM):
             )
         elif sglang_batched:
             port = random.randint(30000, 35000)
-            self._llm = Engine(model, port=port)
+            self._llm = Engine(model, port=port, download_dir=os.getenv("HF_HOME"))
             self._tokenizer = self._llm.get_tokenizer()
         elif mlc_batched and MLCEngine is None:
             raise ImportError(
                 "Please install mlc-llm separately to use mlc-llm batch inference."
             )
         elif mlc_batched:
-            self._llm = MLCEngine("HF://" + model)
-            self._tokenizer = self._llm.get_tokenizer()
+            model_path = os.getenv("MLC_MODEL_PATH") + model
+            self._llm = MLCEngine(model_path, mode='server')
+            self._tokenizer = self._llm.tokenizer
         else:
             self._llm, self._tokenizer = load_model(
                 model, device=device, num_gpus=num_gpus
@@ -199,11 +201,11 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 "Please install rank-llm with `pip install rank-llm[vllm]` to use batch inference."
             )
 
-        if isinstance(self._llm, None):
+        if self._llm is None:
             raise ReferenceError(
                 "No inference engine is initialized. Aborting..."
             )
-        elif isinstance(self._llm, LLM):
+        elif LLM is not None and self._vllm_batched:
             logger.info(f"VLLM Generating!")
             sampling_params = SamplingParams(
                 temperature=0.0,
@@ -216,7 +218,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 (output.outputs[0].text, len(output.outputs[0].token_ids))
                 for output in outputs
             ]
-        elif isinstance(self._llm, Engine):
+        elif Engine is not None and self._sglang_batched:
             logger.info(f"SGLang Generating!")
             sampling_params = {
                 "temperature": 0.0,
@@ -229,17 +231,17 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 (output["text"], output["meta_info"]["completion_tokens"] - 1)
                 for output in outputs
             ]
-        elif isinstance(self._llm, MLCEngine):
+        elif MLCEngine is not None and self._mlc_batched:
             logger.info(f"MLCLLM Generating!")
-            sampling_params = {
-                "temperature": 0.0,
-                "max_new_tokens": self.num_output_tokens(current_window_size),
-                "min_new_tokens": self.num_output_tokens(current_window_size),
-            }
-            outputs = self._llm.generate(prompts, sampling_params)
+            sampling_params = GenerationConfig(
+                temperature=0.0,
+                max_tokens=self.num_output_tokens(current_window_size),
+            )
+            outputs = self._llm._generate(prompts, sampling_params, '1')
+            print(outputs)
+            logger.info(outputs[0])
             return [
-                # completion_tokens counts stop token
-                (output["text"], output["meta_info"]["completion_tokens"] - 1)
+                (output.outputs[0].text, len(output.outputs[0].token_ids))
                 for output in outputs
             ]
 
