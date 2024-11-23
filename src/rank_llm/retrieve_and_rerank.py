@@ -37,7 +37,7 @@ def retrieve_and_rerank(
 
     # Get reranking agent
     reranker = Reranker(
-        Reranker.create_agent(model_path.lower(), default_agent, interactive, **kwargs)
+        Reranker.create_agent(model_path, default_agent, interactive, **kwargs)
     )
 
     # Retrieve initial candidates
@@ -99,11 +99,12 @@ def retrieve_and_rerank(
             dataset_name=dataset,
             vllm_batched=kwargs.get("vllm_batched", False),
             sglang_batched=kwargs.get("sglang_batched", False),
+            tensorrt_batched=kwargs.get("tensorrt_batched", False),
         )
         if (
             dataset in TOPICS
-            and dataset not in ["dl22", "dl22-passage", "news"]
-            and TOPICS[dataset] not in ["dl22", "dl22-passage", "news"]
+            and dataset not in ["news"]
+            and TOPICS[dataset] not in ["news"]
         ):
             from rank_llm.evaluation.trec_eval import EvalFunction
 
