@@ -33,6 +33,13 @@ try:
 except:
     MLCEngine = None
 
+try:
+    from tensorrt_llm import LLM as TRTLLM, SamplingParams as TRTSamplingParams, BuildConfig
+except:
+    TRTLLM = None
+    TRTSamplingParams = None
+    BuildConfig = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +59,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         vllm_batched: bool = False,
         sglang_batched: bool = False,
         mlc_batched: bool = False,
+        tensorrt_batched: bool = False,
     ) -> None:
         """
          Creates instance of the RankListwiseOSLLM class, an extension of RankLLM designed for performing listwise ranking of passages using a specified language model. Advanced configurations are supported such as GPU acceleration, variable passage handling, and custom system messages for generating prompts.
@@ -73,6 +81,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
          instructions or context. Defaults to None.
          - vllm_batched (bool, optional): Indicates whether batched inference using VLLM is leveraged. Defaults to False.
          - sglang_batched (bool, optional): Indicates whether batched inference using SGLang is leveraged. Defaults to False.
+         - tensorrt_batched (bool, optional): Indicates whether batched inference using TensorRT-LLM is leveraged. Defaults to False.
 
          Raises:
          - AssertionError: If CUDA is specified as the device but is not available on the system.
@@ -91,6 +100,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         self._vllm_batched = vllm_batched
         self._sglang_batched = sglang_batched
         self._mlc_batched = mlc_batched
+        self._tensorrt_batched = tensorrt_batched
         self._name = name
         self._variable_passages = variable_passages
         self._system_message = system_message
@@ -134,6 +144,15 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         elif mlc_batched:
             model_path = os.getenv("MLC_MODEL_PATH") + model
             self._llm = MLCEngine(model_path, mode='server')
+            self._llm = Engine(model, port=port)
+            self._tokenizer = self._llm.get_tokenizer()
+        elif tensorrt_batched and TRTLLM is None:
+            raise ImportError(
+                "Please install rank-llm with `pip install rank-llm[tensorrt_llm]` to use tensorrt batch inference."
+            )
+        elif tensorrt_batched:
+            build_config = BuildConfig(max_seq_len=8192) # Try this value, may change depending on env
+            self._llm = TRTLLM(model=model, build_config=build_config)
             self._tokenizer = self._llm.tokenizer
         else:
             self._llm, self._tokenizer = load_model(
@@ -155,7 +174,7 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         step: int = kwargs.get("step", 10)
         populate_exec_summary: bool = kwargs.get("populate_exec_summary", False)
 
-        if self._vllm_batched or self._sglang_batched or self._mlc_batched:
+        if self._vllm_batched or self._sglang_batched or self._mlc_batched or self._tensorrt_batched:
             # reranking using vllm or sglang
             if len(set([len(req.candidates) for req in requests])) != 1:
                 raise ValueError(
@@ -196,11 +215,6 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         prompts: List[str | List[Dict[str, str]]],
         current_window_size: Optional[int] = None,
     ) -> List[Tuple[str, int]]:
-        if SamplingParams is None:
-            raise ImportError(
-                "Please install rank-llm with `pip install rank-llm[vllm]` to use batch inference."
-            )
-
         if self._llm is None:
             raise ReferenceError(
                 "No inference engine is initialized. Aborting..."
@@ -244,6 +258,24 @@ class RankListwiseOSLLM(ListwiseRankLLM):
                 (output.outputs[0].text, len(output.outputs[0].token_ids))
                 for output in outputs
             ]
+        elif TRTLLM is not None and self._tensorrt_batched:
+            logger.info(f"TensorRT LLM Generating!")
+            sampling_params = TRTSamplingParams(
+                temperature=0.0,
+                max_tokens=self.num_output_tokens(current_window_size),
+                min_tokens=self.num_output_tokens(current_window_size),
+            )
+            outputs = self._llm.generate(prompts, sampling_params)
+            logger.info(outputs)
+            return [
+                (output.outputs[0].text, len(output.outputs[0].token_ids))
+                for output in outputs
+            ]
+        else:
+            raise ReferenceError(
+                "No inference engine is initialized or called. Aborting..."
+            )
+
 
     def run_llm(
         self, prompt: str, current_window_size: Optional[int] = None

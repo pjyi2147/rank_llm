@@ -100,6 +100,7 @@ def retrieve_and_rerank(
             vllm_batched=kwargs.get("vllm_batched", False),
             sglang_batched=kwargs.get("sglang_batched", False),
             mlc_batched=kwargs.get("mlc_batched", False),
+            tensorrt_batched=kwargs.get("tensorrt_batched", False),
         )
         if (
             dataset in TOPICS

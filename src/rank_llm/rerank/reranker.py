@@ -43,6 +43,7 @@ class Reranker:
             logging (bool, optional): Enables logging of the reranking process. Defaults to False.
             vllm_batched (bool, optional): Whether to use VLLM batched processing. Defaults to False.
             sglang_batched (bool, optional): Whether to use SGLang batched processing. Defaults to False.
+            tensorrt_batched (bool, optional): Whether to use TensorRt LLM batched processing. Defaults to False.
             populate_exec_summary (bool, optional): Whether to populate the exec summary. Defaults to False.
             batched (bool, optional): Whether to use batched processing. Defaults to False.
 
@@ -102,6 +103,7 @@ class Reranker:
         vllm_batched: bool = False,
         sglang_batched: bool = False,
         mlc_batched: bool = False,
+        tensorrt_batched: bool = False,
         **kwargs,
     ) -> str:
         """
@@ -147,6 +149,8 @@ class Reranker:
             name += "_sglang"
         elif mlc_batched:
             name += "_mlc"
+        elif tensorrt_batched:
+            name += "_tensorrt"
 
         # write rerank results
         writer = DataWriter(results)
@@ -240,6 +244,7 @@ class Reranker:
                 ("vllm_batched", False),
                 ("sglang_batched", False),
                 ("mlc_batched", False),
+                ("tensorrt_batched", False),
             ]
             [
                 context_size,
@@ -253,6 +258,7 @@ class Reranker:
                 vllm_batched,
                 sglang_batched,
                 mlc_batched,
+                tensorrt_batched
             ] = extract_kwargs(keys_and_defaults, **kwargs)
 
             agent = RankListwiseOSLLM(
@@ -273,6 +279,7 @@ class Reranker:
                 vllm_batched=vllm_batched,
                 sglang_batched=sglang_batched,
                 mlc_batched=mlc_batched,
+                tensorrt_batched=tensorrt_batched,
             )
 
             print(f"Completed loading {model_path}")
