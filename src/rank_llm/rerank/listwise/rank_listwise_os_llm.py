@@ -144,7 +144,6 @@ class RankListwiseOSLLM(ListwiseRankLLM):
         elif mlc_batched:
             model_path = os.getenv("MLC_MODEL_PATH") + model
             self._llm = MLCEngine(model_path, mode='server')
-            self._llm = Engine(model, port=port)
             self._tokenizer = self._llm.get_tokenizer()
         elif tensorrt_batched and TRTLLM is None:
             raise ImportError(
